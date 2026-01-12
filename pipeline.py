@@ -258,7 +258,6 @@ def build_prompt(
     previous_question: str | None = None,
     previous_answer: str | None = None,
 ) -> str:
-    # نجيب الكونتكست من الـ RAG
     context = get_context(question, k=3)
 
     followup_block = ""
@@ -288,7 +287,7 @@ def ask_llm(
     prompt = build_prompt(question, previous_question, previous_answer)
 
     response = client.chat.completions.create(
-        model="gpt-5-mini",   # أو gpt-4o-mini لو حابة
+        model="gpt-5-mini",
         messages=[
             {"role": "user", "content": prompt}
         ],
