@@ -265,16 +265,39 @@ Question:
 """
 
 
-def ask_llm(question):
-    prompt = build_prompt(question)
+def ask_llm(question: str, previous_question: str | None = None, previous_answer: str | None = None) -> str:
+    context = get_context(question, k=3)
+    
+    if not context:
+        return "The paper does not contain enough information to answer this question."
 
-    response = client.chat.completions.create(
+    # بناء رسالة المستخدم مع follow-up
+    followup_text = ""
+    if previous_question and previous_answer:
+        followup_text = (
+            "Follow-up from previous interaction:\n"
+            f"Q: {previous_question}\n"
+            f"A: {previous_answer}\n\n"
+        )
+
+    user_content = (
+        "You must answer using ONLY the information explicitly stated below.\n"
+        "If the paper does not explicitly provide the answer, say so.\n\n"
+        f"{followup_text}"
+        "=== PAPER CONTENT ===\n"
+        f"{context}\n"
+        "=== END OF PAPER CONTENT ===\n\n"
+        f"Question:\n{question}"
+    )
+
+    res = client.chat.completions.create(
         model="gpt-5-mini",
         messages=[
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": user_content}
         ],
         max_completion_tokens=500
     )
 
-    return response.choices[0].message.content
+    return res.choices[0].message.content
+
 
