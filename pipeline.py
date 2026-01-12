@@ -170,14 +170,18 @@ def build_index(pdf_path):
     return len(all_docs)
 
 
-def get_context(question, k=5):
+def get_context(question, k=3):
     """يرجع أقرب مقاطع (نص/فيقر) للسؤال من الإندكس."""
     if index is None:
         raise ValueError("PDF not processed yet")
 
     q_emb = embed_model.encode([question])
     _, ids = index.search(q_emb, k)
-    return "\n\n".join(all_docs[i]["content"] for i in ids[0])
+    return "\n\n".join(
+    f"[{all_docs[i]['type'].upper()}]\n{all_docs[i]['content']}"
+    for i in ids[0]
+)
+
 
 
 SYSTEM_PROMPT = """
@@ -247,35 +251,30 @@ Otherwise:
 - Answer the question normally using the given information.
 """
 
+def build_prompt(question):
+    context = get_context(question, k=3)
+
+    return f"""
+{SYSTEM_PROMPT}
+
+Context:
+{context}
+
+Question:
+{question}
+"""
 
 
-def ask_llm(question: str, context: str | None = None) -> str:
-    """
-    وقت السؤال:
-    - لو ما انرسل context يدويًا → نجيب كونتكست من الإندكس (نص+فيقر)
-    - نمرر السؤال + الكونتكست للـ LLM
-    """
-    if context is None:
-        try:
-            context = get_context(question, k=5) if index is not None else None
-        except Exception:
-            context = None
+def ask_llm(question):
+    prompt = build_prompt(question)
 
-    if context:
-        user_content = (
-            f"Context from the paper:\n{context}\n\n"
-            f"Question: {question}\n\n"
-        )
-    else:
-        user_content = question
-
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
+    response = client.chat.completions.create(
+        model="gpt-5-mini",
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
+            {"role": "user", "content": prompt}
         ],
-        max_completion_tokens=400,
+        max_completion_tokens=500
     )
 
-    return res.choices[0].message.content
+    return response.choices[0].message.content
+
