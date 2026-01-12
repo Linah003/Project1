@@ -241,33 +241,29 @@ Otherwise:
 
 
 
-def ask_llm(question: str, context: str | None = None) -> str:
-    """
-    وقت السؤال:
-    - لو ما انرسل context يدويًا → نجيب كونتكست من الإندكس (نص+فيقر)
-    - نمرر السؤال + الكونتكست للـ LLM
-    """
-    if context is None:
-        try:
-            context = get_context(question, k=5) if index is not None else None
-        except Exception:
-            context = None
+def build_prompt(question: str) -> str:
+    context = get_context(question, k=3)
 
-    if context:
-        user_content = (
-            f"Context from the paper:{context}"
-            f"Question: {question}"
-        )
-    else:
-        user_content = question
+    return f"""
+{SYSTEM_PROMPT}
 
-    res = client.chat.completions.create(
+Context:
+{context}
+
+Question:
+{question}
+"""
+
+
+def ask_llm(question: str) -> str:
+    prompt = build_prompt(question)
+
+    response = client.chat.completions.create(
         model="gpt-5-mini",
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
+            {"role": "user", "content": prompt}
         ],
-        max_completion_tokens=400,
+        max_completion_tokens=500,
     )
 
-    return res.choices[0].message.content
+    return response.choices[0].message.content.strip()
