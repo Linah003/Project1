@@ -242,11 +242,8 @@ Otherwise:
 
 
 def ask_llm(question: str) -> str:
-    # حاول نجيب كونتكست من الإندكس
-    try:
-        context = get_context(question, k=3)
-    except Exception:
-        context = ""
+   
+    context = get_context(question, k=3)
 
     user_message = f"""
 Context from the paper:
