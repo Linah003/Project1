@@ -4,6 +4,8 @@ import os
 import shutil
 
 from pipeline import build_index, ask_llm
+from typing import Optional
+from pydantic import BaseModel
 
 app = FastAPI(title="Research Paper Chatbot Backend")
 
@@ -41,18 +43,29 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 
 # ===== ENDPOINT: سؤال الشات بوت =====
-from pydantic import BaseModel
 
 class AskRequest(BaseModel):
     question: str
-
+    previous_question: Optional[str] = None
+    previous_answer: Optional[str] = None
+    
 @app.post("/ask")
 async def ask_question(body: AskRequest):
     """
-    receives JSON: { "question": "...." }
+    receives JSON: 
+    { 
+      "question": "...", 
+      "previous_question": "...", 
+      "previous_answer": "..." 
+    }
     """
-    answer = ask_llm(body.question)
+    answer = ask_llm(
+        question=body.question,
+        previous_question=body.previous_question,
+        previous_answer=body.previous_answer
+    )
     return {
         "question": body.question,
         "answer": answer,
     }
+
