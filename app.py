@@ -2,10 +2,8 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import shutil
-from fastapi.responses import PlainTextResponse
+
 from pipeline import build_index, ask_llm
-from typing import Optional
-from pydantic import BaseModel
 
 app = FastAPI(title="Research Paper Chatbot Backend")
 
@@ -43,18 +41,18 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 
 # ===== ENDPOINT: سؤال الشات بوت =====
+from pydantic import BaseModel
 
 class AskRequest(BaseModel):
     question: str
-    previous_question: Optional[str] = None
-    previous_answer: Optional[str] = None
 
-@app.post("/ask", response_class=PlainTextResponse)
+@app.post("/ask")
 async def ask_question(body: AskRequest):
-    answer = ask_llm(
-        question=body.question,
-        previous_question=body.previous_question,
-        previous_answer=body.previous_answer,
-    )
-    # رجّع النص مباشرة
-    return answer
+    """
+    receives JSON: { "question": "...." }
+    """
+    answer = ask_llm(body.question)
+    return {
+        "question": body.question,
+        "answer": answer,
+    }
