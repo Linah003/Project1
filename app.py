@@ -27,7 +27,6 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # ===== ENDPOINT: رفع الـ PDF وبناء البايب لاين (نص + صور) =====
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
-    try:
         file_path = os.path.join(UPLOAD_DIR, file.filename)
 
         # نحفظ الملف
@@ -42,8 +41,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             "file_path": file_path,
             "docs_in_index": num_docs,   # نص + فيقرز
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+  
 
 
 # ===== ENDPOINT: سؤال الشات بوت =====
@@ -54,11 +52,10 @@ async def ask_question(question: str = Form(...)):
     - RAG في البايب لاين يجيب كونتكست من النص + الفيقيرز
     - LLM يجاوب بناءً على الكونتكست
     """
-    try:
+
         answer = ask_llm(question)
         return {
             "question": question,
             "answer": answer,
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+   
