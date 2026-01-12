@@ -255,13 +255,13 @@ Question:
 """
 
 def ask_llm(question: str) -> str:
-    # 1) نبني البرومبت
+    # 1) نبني البرومبت مع الكونتكست
     try:
         prompt = build_prompt(question)
     except Exception as e:
-        return f"ERROR while building prompt: {e!r}"
+        return f"Error while building prompt: {e!r}"
 
-    # 2) نكلم المودل
+    # 2) نحاول أول مرة باستخدام البرومبت الكامل
     try:
         response = client.chat.completions.create(
             model="gpt-5-mini",
@@ -272,10 +272,24 @@ def ask_llm(question: str) -> str:
         )
 
         content = response.choices[0].message.content
-        if not content or not content.strip():
-            return "ERROR: model returned an empty answer."
+        if content and content.strip():
+            return content.strip()
 
-        return content.strip()
+        # 3) لو رجع فاضي نستخدم محاولة ثانية أبسط: السؤال بس بدون كونتكست معقّد
+        fallback = client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=[
+                {"role": "user", "content": question}
+            ],
+            max_completion_tokens=500,
+        )
+
+        fallback_content = fallback.choices[0].message.content
+        if fallback_content and fallback_content.strip():
+            return fallback_content.strip()
+
+        # لو حتى المحاولة الثانية فاضية
+        return "I couldn't generate an answer for this question."
 
     except Exception as e:
-        return f"OPENAI ERROR: {e!r}"
+        return f"OpenAI API error: {e!r}"
