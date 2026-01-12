@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import shutil
@@ -41,15 +41,18 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 
 # ===== ENDPOINT: سؤال الشات بوت =====
+from pydantic import BaseModel
+
+class AskRequest(BaseModel):
+    question: str
+
 @app.post("/ask")
-async def ask_question(question: str = Form(...)):
+async def ask_question(body: AskRequest):
     """
-    يستقبل سؤال المستخدم عن الورقة:
-    - RAG في البايب لاين يجيب كونتكست من النص + الفيقيرز
-    - LLM يجاوب بناءً على الكونتكست
+    receives JSON: { "question": "...." }
     """
-    answer = ask_llm(question)
+    answer = ask_llm(body.question)
     return {
-        "question": question,
+        "question": body.question,
         "answer": answer,
     }
