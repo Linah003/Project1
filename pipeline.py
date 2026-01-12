@@ -241,20 +241,32 @@ Otherwise:
 
 
 
-def ask_llm(question: str) -> str:
-   
-    context = get_context(question, k=3)
+def ask_llm(question: str, context: str | None = None) -> str:
+    # لو ما جا كونتكست من برّا، نحاول نجيبه من الإندكس
+    if context is None:
+        try:
+            context = get_context(question, k=5) if index is not None else None
+        except Exception:
+            context = None
 
-    user_message = f"""
+    # سطر الديبق – بس عشان نتأكد إن الكونتكست مو فاضي
+    print("DEBUG CONTEXT LEN:", 0 if context is None else len(context))
+
+    # نجهز رسالة اليوزر للمودل
+    if context:
+        user_message = f"""
 Context from the paper:
 {context}
 
 Question:
 {question}
 
-Answer clearly
+Answer clearly.
 """
+    else:
+        user_message = question
 
+    # ننده على المودل
     response = client.chat.completions.create(
         model="gpt-5-mini",
         messages=[
