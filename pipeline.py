@@ -104,7 +104,7 @@ def describe_image(image_bytes, context: str | None = None):
     ]
 
     res = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-5-mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
@@ -251,53 +251,49 @@ Otherwise:
 - Answer the question normally using the given information.
 """
 
-def build_prompt(question):
+
+
+def build_prompt(
+    question: str,
+    previous_question: str | None = None,
+    previous_answer: str | None = None,
+) -> str:
+    # نجيب الكونتكست من الـ RAG
     context = get_context(question, k=3)
+
+    followup_block = ""
+    if previous_question and previous_answer:
+        followup_block = (
+            "Follow-up from previous interaction:\n"
+            f"Previous question: {previous_question}\n"
+            f"Previous answer: {previous_answer}\n\n"
+        )
 
     return f"""
 {SYSTEM_PROMPT}
 
-Context:
+{followup_block}Context from the paper:
 {context}
 
 Question:
 {question}
-"""
+""".strip()
 
 
-def ask_llm(question: str, previous_question: str | None = None, previous_answer: str | None = None) -> str:
-    context = get_context(question, k=3)
-    
-    if not context:
-        return "The paper does not contain enough information to answer this question."
+def ask_llm(
+    question: str,
+    previous_question: str | None = None,
+    previous_answer: str | None = None,
+) -> str:
+    prompt = build_prompt(question, previous_question, previous_answer)
 
-    # بناء رسالة المستخدم مع follow-up
-    followup_text = ""
-    if previous_question and previous_answer:
-        followup_text = (
-            "Follow-up from previous interaction:\n"
-            f"Q: {previous_question}\n"
-            f"A: {previous_answer}\n\n"
-        )
-
-    user_content = (
-        "You must answer using ONLY the information explicitly stated below.\n"
-        "If the paper does not explicitly provide the answer, say so.\n\n"
-        f"{followup_text}"
-        "=== PAPER CONTENT ===\n"
-        f"{context}\n"
-        "=== END OF PAPER CONTENT ===\n\n"
-        f"Question:\n{question}"
-    )
-
-    res = client.chat.completions.create(
-        model="gpt-5-mini",
+    response = client.chat.completions.create(
+        model="gpt-5-mini",   # أو gpt-4o-mini لو حابة
         messages=[
-            {"role": "user", "content": user_content}
+            {"role": "user", "content": prompt}
         ],
-        max_completion_tokens=500
+        max_completion_tokens=500,
     )
 
-    return res.choices[0].message.content
-
+    return response.choices[0].message.content.strip()
 
