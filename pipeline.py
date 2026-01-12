@@ -265,7 +265,6 @@ def ask_llm(question: str, context: str | None = None) -> str:
         user_content = (
             f"Context from the paper:\n{context}\n\n"
             f"Question: {question}\n\n"
-            "Answer clearly in 3–6 sentences."
         )
     else:
         user_content = question
