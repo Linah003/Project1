@@ -243,7 +243,7 @@ When explaining contributions:
 Otherwise:
 - Answer the question normally using the given information.
 """
-"""
+
 
 
 def ask_llm(question: str, context: str | None = None) -> str:
