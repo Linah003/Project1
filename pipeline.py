@@ -241,55 +241,31 @@ Otherwise:
 
 
 
-def build_prompt(question: str) -> str:
-    context = get_context(question, k=3)
+def ask_llm(question: str) -> str:
+    # حاول نجيب كونتكست من الإندكس
+    try:
+        context = get_context(question, k=3)
+    except Exception:
+        context = ""
 
-    return f"""
-{SYSTEM_PROMPT}
-
-Context:
+    user_message = f"""
+Context from the paper:
 {context}
 
 Question:
 {question}
+
+Answer clearly
 """
 
-def ask_llm(question: str) -> str:
-    # 1) نبني البرومبت مع الكونتكست
-    try:
-        prompt = build_prompt(question)
-    except Exception as e:
-        return f"Error while building prompt: {e!r}"
+    response = client.chat.completions.create(
+        model="gpt-5-mini",
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
+        max_completion_tokens=400,
+    )
 
-    # 2) نحاول أول مرة باستخدام البرومبت الكامل
-    try:
-        response = client.chat.completions.create(
-            model="gpt-5-mini",
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            max_completion_tokens=500,
-        )
-
-        content = response.choices[0].message.content
-        if content and content.strip():
-            return content.strip()
-
-        # 3) لو رجع فاضي نستخدم محاولة ثانية أبسط: السؤال بس بدون كونتكست معقّد
-        fallback = client.chat.completions.create(
-            model="gpt-5-mini",
-            messages=[
-                {"role": "user", "content": question}
-            ],
-            max_completion_tokens=500,
-        )
-
-        fallback_content = fallback.choices[0].message.content
-        if fallback_content and fallback_content.strip():
-            return fallback_content.strip()
-
-        # لو حتى المحاولة الثانية فاضية
-        return "I couldn't generate an answer for this question."
-
-    except Exception as e:
-        return f"OpenAI API error: {e!r}"
+    content = response.choices[0].message.content
+    return content.strip() if content else "I couldn't find an answer in the paper."
