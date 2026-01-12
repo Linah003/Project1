@@ -104,7 +104,7 @@ def describe_image(image_bytes, context: str | None = None):
     ]
 
     res = client.chat.completions.create(
-        model="gpt-5-mini",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
@@ -170,18 +170,14 @@ def build_index(pdf_path):
     return len(all_docs)
 
 
-def get_context(question, k=3):
+def get_context(question, k=5):
     """يرجع أقرب مقاطع (نص/فيقر) للسؤال من الإندكس."""
     if index is None:
         raise ValueError("PDF not processed yet")
 
     q_emb = embed_model.encode([question])
     _, ids = index.search(q_emb, k)
-    return "\n\n".join(
-    f"[{all_docs[i]['type'].upper()}]\n{all_docs[i]['content']}"
-    for i in ids[0]
-)
-
+    return "\n\n".join(all_docs[i]["content"] for i in ids[0])
 
 
 SYSTEM_PROMPT = """
@@ -208,6 +204,11 @@ Your behavior rules:
 - If the user states an interpretation of the paper that conflicts with its core contribution, do not agree by default; instead, explicitly clarify or correct the interpretation before continuing the discussion.
 - When explaining complex concepts, start with a high-level intuitive explanation suitable for graduate students, then refine it to the paper’s precise technical meaning.
 
+Special instruction for summarization:
+- If the user asks for a full summary of the paper (e.g. "summarize the paper","give me a summary", "summarize this research"),
+  respond with:
+  "This platform provides a dedicated summarization feature for full paper summaries.
+   Please use the summarization section to view the complete summary."
 Figures, tables, and boxed content:
 - Treat figures, tables, and boxed examples as integral parts of the paper.
 - When asked about them, explain their purpose, role, and what they demonstrate within the paper.
@@ -235,64 +236,43 @@ Conversational depth:
 - When clarification would significantly improve the discussion, ask a concise follow-up question before continuing.
 
 When explaining contributions:
+- Do not redefine the paper as a system, application, or product unless the paper explicitly frames itself that way.
+- Distinguish clearly between the research contribution and the mechanisms used to demonstrate or enable it.
+- When asked what is valuable independent of an interface or mechanism, abstract the answer to the level of the paper’s training, evaluation, or methodological contribution, not to a specific system component.
 
-- Always answer ONLY using the given CONTEXT of the paper.
-- Be specific to THIS paper (task, data, method, and findings). 
-- Never give generic answers that could fit any paper (e.g., 
-  "the paper presents a novel approach" without saying what it does).
-- When asked "What is the main contribution of this paper?" or similar:
-  * List 2–3 bullet points.
-  * Each bullet must mention:
-    - what was proposed / studied (model, dataset, framework, analysis, etc.),
-    - and why it matters (improvement, insight, or application).
-  * Keep the whole answer under 80 words.
-  
 Otherwise:
 - Answer the question normally using the given information.
 """
 
 
 
-def build_prompt(
-    question: str,
-    previous_question: str | None = None,
-    previous_answer: str | None = None,
-) -> str:
-    context = get_context(question, k=3)
+def ask_llm(question: str, context: str | None = None) -> str:
+    """
+    وقت السؤال:
+    - لو ما انرسل context يدويًا → نجيب كونتكست من الإندكس (نص+فيقر)
+    - نمرر السؤال + الكونتكست للـ LLM
+    """
+    if context is None:
+        try:
+            context = get_context(question, k=5) if index is not None else None
+        except Exception:
+            context = None
 
-    followup_block = ""
-    if previous_question and previous_answer:
-        followup_block = (
-            "Follow-up from previous interaction:\n"
-            f"Previous question: {previous_question}\n"
-            f"Previous answer: {previous_answer}\n\n"
+    if context:
+        user_content = (
+            f"Context from the paper:{context}"
+            f"Question: {question}"
         )
+    else:
+        user_content = question
 
-    return f"""
-{SYSTEM_PROMPT}
-
-{followup_block}Context from the paper:
-{context}
-
-Question:
-{question}
-""".strip()
-
-
-def ask_llm(
-    question: str,
-    previous_question: str | None = None,
-    previous_answer: str | None = None,
-) -> str:
-    prompt = build_prompt(question, previous_question, previous_answer)
-
-    response = client.chat.completions.create(
+    res = client.chat.completions.create(
         model="gpt-5-mini",
         messages=[
-            {"role": "user", "content": prompt}
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
         ],
-        max_completion_tokens=500,
+        max_completion_tokens=400,
     )
 
-    return response.choices[0].message.content.strip()
-
+    return res.choices[0].message.content
