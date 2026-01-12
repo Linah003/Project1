@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+
+pdfplumber
+pymupdf
+
+opencv-python-headless
+numpy
+pillow
+
+sentence-transformers
+faiss-cpu
+
+openai
+python-multipart
