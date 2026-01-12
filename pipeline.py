@@ -254,16 +254,28 @@ Question:
 {question}
 """
 
-
 def ask_llm(question: str) -> str:
-    prompt = build_prompt(question)
+    # 1) نبني البرومبت
+    try:
+        prompt = build_prompt(question)
+    except Exception as e:
+        return f"ERROR while building prompt: {e!r}"
 
-    response = client.chat.completions.create(
-        model="gpt-5-mini",
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
-        max_completion_tokens=500,
-    )
+    # 2) نكلم المودل
+    try:
+        response = client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            max_completion_tokens=500,
+        )
 
-    return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        if not content or not content.strip():
+            return "ERROR: model returned an empty answer."
+
+        return content.strip()
+
+    except Exception as e:
+        return f"OPENAI ERROR: {e!r}"
