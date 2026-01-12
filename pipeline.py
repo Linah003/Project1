@@ -1,26 +1,42 @@
-[c["content"] for c in all_docs],
-        convert_to_numpy=True
-    )
+append({
+            "type": "text",
+            "content": c,
+        })
+
+    # ---------- 2) صور (figures/tables) ----------
+    pages = render_pages(pdf_path)
+    for p in pages:
+        boxes, img = detect_visual_blocks(p["image"])
+        for (x, y, w, h) in boxes:
+            crop = img[y:y+h, x:x+w]
+            _, buf = cv2.imencode(".png", crop)
+            crop_bytes = buf.tobytes()
+
+            # وصف الفيقير كنص (بدون ما نطلب من المستخدم يسميها)
+            fig_desc = describe_image(crop_bytes, context=None)
+
+            all_docs.append({
+                "type": "figure",
+                "content": fig_desc,
+                "page": p["page"],  # معلومات زيادة لو احتجتيها، المستخدم ما يشوفها
+            })
+
+    # ---------- 3) امبدنق + FAISS ----------
+    texts_for_emb = [d["content"] for d in all_docs]
+    if not texts_for_emb:
+        raise ValueError("No text or figures extracted from PDF.")
+
+    embeddings = embed_model.encode(texts_for_emb, convert_to_numpy=True)
 
     index = faiss.IndexFlatL2(embeddings.shape[1])
     index.add(embeddings)
 
-    # 3) الصفحات + visual blocks لكل صفحة (عشان الفيقيرز / الجداول)
-    PAGES = []
-    raw_pages = render_pages(pdf_path)
-    for p in raw_pages:
-        boxes, _ = detect_visual_blocks(p["image"])
-        PAGES.append({
-            "page": p["page"],
-            "image": p["image"],
-            "boxes": boxes
-        })
-
+    # ترجعين العدد الكلي للدوكيومنتس (نص+فيقرز)
     return len(all_docs)
 
 
 def get_context(question, k=5):
-    """يرجع أقرب مقاطع للسؤال من الإندكس."""
+    """يرجع أقرب مقاطع (نص/فيقر) للسؤال من الإندكس."""
     if index is None:
         raise ValueError("PDF not processed yet")
 
@@ -31,20 +47,21 @@ def get_context(question, k=5):
 
 SYSTEM_PROMPT = """
  You are a research assistant explaining a scientific paper.
- ... (نفس البرومبت اللي عندك بالضبط) ...
+ (خلي باقي البرومبت زي ما هو عندك)
 """
 
 
-def ask_llm(question: str) -> str:
+def ask_llm(question: str, context: str | None = None) -> str:
     """
-    يسوي:
-    1) يجمع كونتكست من الورقة (RAG) عن طريق get_context
-    2) يرسل السؤال + الكونتكست للـ LLM
+    وقت السؤال:
+    - لو ما انرسل context يدويًا → نجيب كونتكست من الإندكس (نص+فيقر)
+    - نمرر السؤال + الكونتكست للـ LLM
     """
-    try:
-        context = get_context(question, k=5) if index is not None else None
-    except Exception:
-        context = None
+    if context is None:
+        try:
+            context = get_context(question, k=5) if index is not None else None
+        except Exception:
+            context = None
 
     if context:
         user_content = (
@@ -65,38 +82,3 @@ def ask_llm(question: str) -> str:
     )
 
     return res.choices[0].message.content
-
-
-def describe_block(page_number: int, block_index: int, question: str | None = None) -> str:
-    """
-    يختار بلوك بصري (مثلاً فيقر) من صفحة معيّنة:
-    - يقصّه من صورة الصفحة
-    - يجيب كونتكست نصّي من الورقة لو فيه سؤال
-    - يمرره لـ describe_image
-    """
-    if not PAGES:
-        raise ValueError("No pages loaded. Upload and index a PDF first.")
-
-    page_entry = next((p for p in PAGES if p["page"] == page_number), None)
-    if page_entry is None:
-        raise ValueError(f"Page {page_number} not found.")
-
-    boxes = page_entry["boxes"]
-    if block_index < 0 or block_index >= len(boxes):
-        raise ValueError(f"Block index {block_index} out of range for page {page_number}.")
-
-    x, y, w, h = boxes[block_index]
-
-    img = cv2.imdecode(np.frombuffer(page_entry["image"], np.uint8), cv2.IMREAD_COLOR)
-    crop = img[y:y+h, x:x+w]
-    _, buf = cv2.imencode(".png", crop)
-    crop_bytes = buf.tobytes()
-
-    ctx = None
-    if question:
-        try:
-            ctx = get_context(question, k=5)
-        except Exception:
-            ctx = None
-
-    return describe_image(crop_bytes, context=ctx)
