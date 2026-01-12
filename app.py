@@ -52,3 +52,4 @@ async def ask_question(body: AskRequest):
     answer = ask_llm(body.question)
     return {
         "answer": answer
+    }
