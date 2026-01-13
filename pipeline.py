@@ -120,7 +120,7 @@ def build_index(pdf_path: str) -> int:
     CURRENT_PDF = pdf_path
     all_docs = []
 
-    # ---------- 1) نص ----------
+   
     full_text = extract_text_clean(pdf_path)
     text_chunks = chunk_text(full_text)
 
