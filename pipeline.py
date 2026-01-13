@@ -10,21 +10,19 @@ from sentence_transformers import SentenceTransformer
 import faiss
 from openai import OpenAI
 
-# ===================== GLOBALS =====================
+
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 CURRENT_PDF: str | None = None
-all_docs: list[dict] = []   # نخزن فيها chunks النص + أوصاف الفيقير
+all_docs: list[dict] = []  
 index: faiss.IndexFlatL2 | None = None
 
-client = OpenAI()  # OPENAI_API_KEY من ENV
+client = OpenAI()  
 
-# مودل الامبدنق
 embed_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
-# ===================== TEXT =====================
 def extract_text_clean(pdf_path: str) -> str:
     full_text = ""
     with pdfplumber.open(pdf_path) as pdf:
@@ -38,7 +36,6 @@ def extract_text_clean(pdf_path: str) -> str:
             if words:
                 full_text += " ".join(w["text"] for w in words) + "\n"
 
-    # تنظيف بسيط
     full_text = re.sub(r"-\s*\n\s*", "", full_text)
     full_text = re.sub(r"\s+", " ", full_text).strip()
     full_text = re.sub(r"\n\s*\n+", "\n\n", full_text)
@@ -54,9 +51,7 @@ def chunk_text(text: str, chunk_size: int = 600, overlap: int = 120) -> list[str
     return chunks
 
 
-# ===================== VISION =====================
 def render_pages(pdf_path: str, dpi: int = 200) -> list[dict]:
-    """نحوّل كل صفحة لصورة PNG."""
     doc = fitz.open(pdf_path)
     zoom = dpi / 72
     mat = fitz.Matrix(zoom, zoom)
@@ -69,7 +64,6 @@ def render_pages(pdf_path: str, dpi: int = 200) -> list[dict]:
 
 
 def detect_visual_blocks(page_img: bytes):
-    """نحدد البلوكات الكبيرة (شكلها فيقر/تيبل)."""
     img = cv2.imdecode(np.frombuffer(page_img, np.uint8), cv2.IMREAD_COLOR)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
@@ -79,13 +73,12 @@ def detect_visual_blocks(page_img: bytes):
     boxes = []
     for c in contours:
         x, y, bw, bh = cv2.boundingRect(c)
-        if bw * bh > 0.03 * w * h:  # نتجاهل الأشياء الصغيرة
+        if bw * bh > 0.03 * w * h: 
             boxes.append((x, y, bw, bh))
     return boxes, img
 
 
 def describe_image(image_bytes: bytes, context: str | None = None) -> str:
-    """نسأل نموذج فيجن يشرح الفيقير كنص."""
     image_b64 = base64.b64encode(image_bytes).decode()
 
     user_content = [
@@ -107,7 +100,7 @@ def describe_image(image_bytes: bytes, context: str | None = None) -> str:
     ]
 
     res = client.chat.completions.create(
-        model="gpt-4o-mini",   # لازم مودل يشوف صور
+        model="gpt-4o-mini",   
         messages=[
             {
                 "role": "system",
@@ -120,15 +113,8 @@ def describe_image(image_bytes: bytes, context: str | None = None) -> str:
     return res.choices[0].message.content
 
 
-# ===================== RAG: INDEX BUILDING =====================
 def build_index(pdf_path: str) -> int:
-    """
-    يبني الإندكس للـ PDF:
-    - يستخرج النص وينظفه ويقسمه chunks
-    - يكتشف الفيقير/تيبل ويحولها لوصف نصي
-    - يدمج كل شيء في all_docs
-    - يحسب امبدنق ويبني FAISS index
-    """
+    
     global CURRENT_PDF, all_docs, index
 
     CURRENT_PDF = pdf_path
@@ -146,7 +132,6 @@ def build_index(pdf_path: str) -> int:
             }
         )
 
-    # ---------- 2) صور (figures/tables) ----------
     pages = render_pages(pdf_path)
     for p in pages:
         boxes, img = detect_visual_blocks(p["image"])
@@ -168,7 +153,6 @@ def build_index(pdf_path: str) -> int:
                 }
             )
 
-    # ---------- 3) امبدنق + FAISS ----------
     texts_for_emb = [d["content"] for d in all_docs]
     if not texts_for_emb:
         raise ValueError("No text or figures extracted from PDF.")
@@ -183,7 +167,6 @@ def build_index(pdf_path: str) -> int:
 
 
 def get_context(question: str, k: int = 5) -> str:
-    """نرجّع أقرب k مقاطع (نص/فيقر) للسؤال من الإندكس."""
     if index is None:
         raise ValueError("PDF not processed yet (index is None)")
 
@@ -195,7 +178,6 @@ def get_context(question: str, k: int = 5) -> str:
     return context
 
 
-# ===================== LLM Q&A =====================
 SYSTEM_PROMPT = """
  You are a research assistant explaining a scientific paper.
 
