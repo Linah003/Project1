@@ -245,7 +245,7 @@ def ask_llm(question: str, context: str | None = None) -> str:
     # لو ما جا كونتكست من برّا، نحاول نجيبه من الإندكس
     if context is None:
         try:
-            context = get_context(question, k=5) if index is not None else None
+            context = get_context(question, k=3) if index is not None else None
         except Exception:
             context = None
 
@@ -268,7 +268,7 @@ Answer clearly.
 
     # ننده على المودل
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-5-mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_message},
