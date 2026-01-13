@@ -8,10 +8,10 @@ from pipeline import build_index, ask_llm
 
 app = FastAPI(title="Research Paper Chatbot Backend")
 
-# ===== CORS =====
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],      # قدام حطي دومين واجهتك بدل *
+    allow_origins=["*"],      
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -21,7 +21,6 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
-# ===== 1) رفع PDF وبناء الإندكس =====
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
     file_path = os.path.join(UPLOAD_DIR, file.filename)
@@ -38,7 +37,6 @@ async def upload_pdf(file: UploadFile = File(...)):
     }
 
 
-# ===== 2) سؤال الشات بوت =====
 class AskRequest(BaseModel):
     question: str
 
