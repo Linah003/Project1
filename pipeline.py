@@ -216,17 +216,31 @@ def ask_llm(question: str) -> str:
         "Here is relevant context from the paper:\n"
         f"{context}\n\n"
         f"Question: {question}\n\n"
-        "Answer based only on this paper."
+        "Answer based only on this paper. "
+        "If the context is empty or does not contain the answer, say that clearly."
     )
 
-    response = client.chat.completions.create(
-        model="gpt-5-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        max_completion_tokens=400,
-    )
+    try:
+        response = client.chat.completions.create(
+            model="gpt-5-mini",   # أو gpt-4o-mini عادي
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            max_completion_tokens=400,
+        )
 
-    content = response.choices[0].message.content
-    return content.strip()
+        content = response.choices[0].message.content or ""
+        print("[ASK_LLM] RAW CONTENT PREVIEW:", repr(content[:200]))
+
+        if not content.strip():
+            return (
+                "The model returned an empty answer. "
+                "Please try asking again or check that the uploaded paper contains relevant text."
+            )
+
+        return content.strip()
+
+    except Exception as e:
+        print("[ASK_LLM] OPENAI ERROR:", e)
+        return f"Backend error while contacting the model: {e}"
