@@ -1,10 +1,10 @@
+# pipeline.py
 import os, io, base64, re
 
 import pdfplumber
 import fitz
 import cv2
 import numpy as np
-from PIL import Image
 
 from sentence_transformers import SentenceTransformer
 import faiss
@@ -14,18 +14,18 @@ from openai import OpenAI
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-CURRENT_PDF = None
-all_docs = []   # هنا بنحط text chunks + figure descriptions
-index = None
+CURRENT_PDF: str | None = None
+all_docs: list[dict] = []   # نخزن فيها chunks النص + أوصاف الفيقير
+index: faiss.IndexFlatL2 | None = None
 
-client = OpenAI()  # API KEY من ENV
+client = OpenAI()  # OPENAI_API_KEY من ENV
 
 # مودل الامبدنق
 embed_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
 # ===================== TEXT =====================
-def extract_text_clean(pdf_path):
+def extract_text_clean(pdf_path: str) -> str:
     full_text = ""
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
@@ -38,22 +38,25 @@ def extract_text_clean(pdf_path):
             if words:
                 full_text += " ".join(w["text"] for w in words) + "\n"
 
+    # تنظيف بسيط
     full_text = re.sub(r"-\s*\n\s*", "", full_text)
     full_text = re.sub(r"\s+", " ", full_text).strip()
     full_text = re.sub(r"\n\s*\n+", "\n\n", full_text)
     return full_text
 
 
-def chunk_text(text, chunk_size=600, overlap=120):
+def chunk_text(text: str, chunk_size: int = 600, overlap: int = 120) -> list[str]:
     chunks, start = [], 0
-    while start < len(text):
+    n = len(text)
+    while start < n:
         chunks.append(text[start:start+chunk_size])
-        start += chunk_size - overlap
+        start += max(1, chunk_size - overlap)
     return chunks
 
 
 # ===================== VISION =====================
-def render_pages(pdf_path, dpi=200):
+def render_pages(pdf_path: str, dpi: int = 200) -> list[dict]:
+    """نحوّل كل صفحة لصورة PNG."""
     doc = fitz.open(pdf_path)
     zoom = dpi / 72
     mat = fitz.Matrix(zoom, zoom)
@@ -65,7 +68,8 @@ def render_pages(pdf_path, dpi=200):
     return pages
 
 
-def detect_visual_blocks(page_img):
+def detect_visual_blocks(page_img: bytes):
+    """نحدد البلوكات الكبيرة (شكلها فيقر/تيبل)."""
     img = cv2.imdecode(np.frombuffer(page_img, np.uint8), cv2.IMREAD_COLOR)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
@@ -75,12 +79,13 @@ def detect_visual_blocks(page_img):
     boxes = []
     for c in contours:
         x, y, bw, bh = cv2.boundingRect(c)
-        if bw * bh > 0.03 * w * h:
+        if bw * bh > 0.03 * w * h:  # نتجاهل الأشياء الصغيرة
             boxes.append((x, y, bw, bh))
     return boxes, img
 
 
-def describe_image(image_bytes, context: str | None = None):
+def describe_image(image_bytes: bytes, context: str | None = None) -> str:
+    """نسأل نموذج فيجن يشرح الفيقير كنص."""
     image_b64 = base64.b64encode(image_bytes).decode()
 
     user_content = [
@@ -90,10 +95,8 @@ def describe_image(image_bytes, context: str | None = None):
                 "You are analyzing a figure from a scientific paper.\n"
                 f"Context from the paper:\n{context or '(no extra context)'}\n\n"
                 "Describe ONLY the scientific content of this figure or table "
-                "(axes, labels, regions, distributions, trends, etc.).\n"
-                "If the image looks like a photo of a person, a face, or anything "
-                "that is not a scientific figure/table/diagram from the paper, "
-                "reply exactly with:\n"
+                "(axes, labels, distributions, trends, comparisons, etc.).\n"
+                "If the image is not a scientific figure/table/diagram, reply exactly:\n"
                 "\"This image does not appear to be a scientific figure from the paper.\""
             ),
         },
@@ -104,24 +107,27 @@ def describe_image(image_bytes, context: str | None = None):
     ]
 
     res = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o-mini",   # لازم مودل يشوف صور
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": "You describe scientific figures briefly and clearly.",
+            },
             {"role": "user", "content": user_content},
         ],
-        max_completion_tokens=400,
+        max_completion_tokens=300,
     )
     return res.choices[0].message.content
 
 
 # ===================== RAG: INDEX BUILDING =====================
-def build_index(pdf_path):
+def build_index(pdf_path: str) -> int:
     """
     يبني الإندكس للـ PDF:
     - يستخرج النص وينظفه ويقسمه chunks
-    - يكتشف البلوكات البصرية (figures/tables) ويوصفها نصيًا
-    - يدمجهم كلهم في all_docs
-    - يحسب لهم امبدنق ويبني FAISS index
+    - يكتشف الفيقير/تيبل ويحولها لوصف نصي
+    - يدمج كل شيء في all_docs
+    - يحسب امبدنق ويبني FAISS index
     """
     global CURRENT_PDF, all_docs, index
 
@@ -133,28 +139,31 @@ def build_index(pdf_path):
     text_chunks = chunk_text(full_text)
 
     for c in text_chunks:
-        all_docs.append({
-            "type": "text",
-            "content": c,
-        })
+        all_docs.append(
+            {
+                "type": "text",
+                "content": c,
+            }
+        )
 
     # ---------- 2) صور (figures/tables) ----------
     pages = render_pages(pdf_path)
     for p in pages:
         boxes, img = detect_visual_blocks(p["image"])
         for (x, y, w, h) in boxes:
-            crop = img[y:y+h, x:x+w]
+            crop = img[y : y + h, x : x + w]
             _, buf = cv2.imencode(".png", crop)
             crop_bytes = buf.tobytes()
 
-            # وصف الفيقير كنص (بدون ما نطلب من المستخدم يسميها)
             fig_desc = describe_image(crop_bytes, context=None)
 
-            all_docs.append({
-                "type": "figure",
-                "content": fig_desc,
-                "page": p["page"],  # معلومات زيادة لو احتجتيها، المستخدم ما يشوفها
-            })
+            all_docs.append(
+                {
+                    "type": "figure",
+                    "content": fig_desc,
+                    "page": p["page"],
+                }
+            )
 
     # ---------- 3) امبدنق + FAISS ----------
     texts_for_emb = [d["content"] for d in all_docs]
@@ -166,107 +175,50 @@ def build_index(pdf_path):
     index = faiss.IndexFlatL2(embeddings.shape[1])
     index.add(embeddings)
 
-    # ترجعين العدد الكلي للدوكيومنتس (نص+فيقرز)
+    print(f"[BUILD_INDEX] docs in index: {len(all_docs)}")
     return len(all_docs)
 
 
-def get_context(question, k=5):
-    """يرجع أقرب مقاطع (نص/فيقر) للسؤال من الإندكس."""
+def get_context(question: str, k: int = 5) -> str:
+    """نرجّع أقرب k مقاطع (نص/فيقر) للسؤال من الإندكس."""
     if index is None:
-        raise ValueError("PDF not processed yet")
+        raise ValueError("PDF not processed yet (index is None)")
 
     q_emb = embed_model.encode([question])
     _, ids = index.search(q_emb, k)
-    return "\n\n".join(all_docs[i]["content"] for i in ids[0])
+
+    parts = [all_docs[i]["content"] for i in ids[0]]
+    context = "\n\n---\n\n".join(parts)
+    return context
 
 
+# ===================== LLM Q&A =====================
 SYSTEM_PROMPT = """
- You are a research assistant explaining a scientific paper.
-
-Your behavior rules:
-- Your primary goal is to help the user understand the paper, clarify unclear concepts, and explain the purpose and reasoning behind components of the paper, not merely to describe what sections or elements contain.
-- Answer directly and clearly.
-- Use a natural academic tone.
-- Before answering, make sure all the information matches what is in the paper.
-- Do NOT mention phrases such as:
-  "according to the context", "based on the provided text", or similar.
-- Do NOT refer to the retrieval process.
-- When the user asks about an algorithm, method, or technique, interpret the question at the level of the paper’s methodological approach, even if specific terminology is not used verbatim.
-- Avoid dismissing a question solely because a term is not explicitly stated; instead, explain the relevant approach or mechanism described in the paper.
-- When identifying the problem a paper addresses, first determine whether the paper focuses on a specific domain or on a general methodological challenge, and frame the problem accordingly.
-- Before answering any high-level question (e.g., about the paper’s problem, contribution, or goal), first infer the paper’s primary focus and scope based on its overall content, then frame the answer accordingly.
-- Do not assume the paper’s domain based solely on benchmarks or examples; distinguish between the core research problem and the evaluation domains used.
-- Treat references to figures, tables, sections, examples, or concepts as case-insensitive and semantically equivalent (e.g., "Figure 6", "figure 6", "Fig. 6"), and preserve the intended reference across follow-up questions.
-- When responding, prioritize identifying what the user is trying to understand or is confused about, and address that directly, rather than only restating the paper’s content.
-- When discussing limitations or failure cases, restrict the explanation to constraints or limitations explicitly implied or discussed in the paper, and avoid generic limitations of large language models unless stated.
-- When explaining why an approach is chosen over simpler alternatives, frame the explanation in terms of the core research challenge the paper aims to address, not implementation convenience or auxiliary mechanisms.
-- When explaining why an approach is chosen over simpler alternatives, interpret "approach" as the paper’s core methodological or training framework, not auxiliary mechanisms such as prompting strategies or tooling details.
-- If the user states an interpretation of the paper that conflicts with its core contribution, do not agree by default; instead, explicitly clarify or correct the interpretation before continuing the discussion.
-- When explaining complex concepts, start with a high-level intuitive explanation suitable for graduate students, then refine it to the paper’s precise technical meaning.
-
-Figures, tables, and boxed content:
-- Treat figures, tables, and boxed examples as integral parts of the paper.
-- When asked about them, explain their purpose, role, and what they demonstrate within the paper.
-- Do NOT speculate beyond what is explicitly shown or described.
-- If the question is phrased as "what is in Figure/Table X",
-  treat it as a visual explanation task.Base the answer strictly on the figure/table description,and do not introduce additional interpretation or paper-level reasoning.
-- When explaining a box or example, explicitly state why it is included in the paper and what it helps clarify, not only what it describes.
-- When explaining figures, focus on what the figure demonstrates in support of the paper’s claims, not merely on visual or descriptive details.
-- When explaining a figure, ensure the explanation strictly matches the specific figure number and content, and do not conflate it with other figures in the paper.
-
-Conversational depth:
-- Treat the interaction as an ongoing academic discussion rather than isolated Q&A.
-- If the user asks follow-up questions (e.g., "explain more", "clarify", "go deeper"),
-  continue building on the previous explanation.
-- Expand by adding depth, conceptual clarification, or connections within the paper.
-- Avoid repeating the same explanation verbatim; refine and deepen it instead.
-- When a follow-up request is ambiguous (e.g., "explain it more"), maintain the same reference as the immediately preceding answer. If multiple interpretations are possible, ask for clarification before introducing new concepts or elements.
-- For any follow-up request that asks for elaboration, clarification, or deeper explanation,
-  treat the referenced element in the immediately preceding response as fixed and locked.
-  Do not switch to a different figure, table, section, example, or concept unless the user
-  explicitly requests a different reference. If multiple interpretations are genuinely possible,
-  ask for clarification before continuing.
-- Adapt the depth and style of explanation based on the user’s questions. If the user asks follow-up questions, assume they are refining their understanding rather than requesting repetition.
-- If the user’s question reflects a possible misunderstanding of the paper, gently clarify or correct it using the paper’s content, without dismissing the question.
-- When clarification would significantly improve the discussion, ask a concise follow-up question before continuing.
-
-When explaining contributions:
-- Do not redefine the paper as a system, application, or product unless the paper explicitly frames itself that way.
-- Distinguish clearly between the research contribution and the mechanisms used to demonstrate or enable it.
-- When asked what is valuable independent of an interface or mechanism, abstract the answer to the level of the paper’s training, evaluation, or methodological contribution, not to a specific system component.
-
-Otherwise:
-- Answer the question normally using the given information.
+You are a research assistant explaining a scientific paper.
+Your job is to help the user understand the paper: clarify concepts,
+explain figures, methods, contributions, and results.
+Answer directly and clearly in 3–6 sentences.
+Do not mention retrieval or chunks. Just answer as if you read the paper.
 """
 
 
+def ask_llm(question: str) -> str:
+    """يأخذ سؤال المستخدم، يجيب كونتكست من الإندكس، ويرسلهم للنموذج."""
+    try:
+        context = get_context(question, k=5)
+    except Exception as e:
+        print("[ASK_LLM] get_context error:", e)
+        context = ""
 
-def ask_llm(question: str, context: str | None = None) -> str:
-    # لو ما جا كونتكست من برّا، نحاول نجيبه من الإندكس
-    if context is None:
-        try:
-            context = get_context(question, k=3) if index is not None else None
-        except Exception:
-            context = None
+    print("[ASK_LLM] CONTEXT LEN:", len(context))
 
-    # سطر الديبق – بس عشان نتأكد إن الكونتكست مو فاضي
-    print("DEBUG CONTEXT LEN:", 0 if context is None else len(context))
+    user_message = (
+        "Here is relevant context from the paper:\n"
+        f"{context}\n\n"
+        f"Question: {question}\n\n"
+        "Answer based only on this paper."
+    )
 
-    # نجهز رسالة اليوزر للمودل
-    if context:
-        user_message = f"""
-Context from the paper:
-{context}
-
-Question:
-{question}
-
-Answer clearly.
-"""
-    else:
-        user_message = question
-
-    # ننده على المودل
     response = client.chat.completions.create(
         model="gpt-5-mini",
         messages=[
@@ -277,4 +229,4 @@ Answer clearly.
     )
 
     content = response.choices[0].message.content
-    return content.strip() if content else "I couldn't find an answer in the paper."
+    return content.strip()
