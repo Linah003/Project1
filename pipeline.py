@@ -262,23 +262,22 @@ Otherwise:
 
 
 
+
 def ask_llm(question: str, context: str | None = None) -> str:
-    """
-    وقت السؤال:
-    - لو ما انرسل context يدويًا → نجيب كونتكست من الإندكس (نص+فيقر)
-    - نمرر السؤال + الكونتكست للـ LLM
-    """
     if context is None:
         try:
             context = get_context(question, k=5) if index is not None else None
         except Exception:
+            print("[ASK_LLM] get_context ERROR")
             context = None
+
+    print("[ASK_LLM] CONTEXT LEN:", 0 if context is None else len(context))
 
     if context:
         user_content = (
             f"Context from the paper:\n{context}\n\n"
             f"Question: {question}\n\n"
-            "Answer clearly in 3–6 sentences."
+            "Answer clearly "
         )
     else:
         user_content = question
@@ -292,48 +291,10 @@ def ask_llm(question: str, context: str | None = None) -> str:
         max_completion_tokens=400,
     )
 
-    return res.choices[0].message.content
+    content = res.choices[0].message.content
+    print("[ASK_LLM] RAW CONTENT PREVIEW:", repr(content)[:200])
 
+    if content is None or not str(content).strip():
+        return "The model returned an empty answer. Please try asking again or check that the uploaded paper contains relevant text."
 
-def ask_llm(question: str) -> str:
-    """يأخذ سؤال المستخدم، يجيب كونتكست من الإندكس، ويرسلهم للنموذج."""
-    try:
-        context = get_context(question, k=5)
-    except Exception as e:
-        print("[ASK_LLM] get_context error:", e)
-        context = ""
-
-    print("[ASK_LLM] CONTEXT LEN:", len(context))
-
-    user_message = (
-        "Here is relevant context from the paper:\n"
-        f"{context}\n\n"
-        f"Question: {question}\n\n"
-        "Answer based only on this paper. "
-        "If the context is empty or does not contain the answer, say that clearly."
-    )
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-5-mini",   # أو gpt-4o-mini عادي
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
-            max_completion_tokens=400,
-        )
-
-        content = response.choices[0].message.content or ""
-        print("[ASK_LLM] RAW CONTENT PREVIEW:", repr(content[:200]))
-
-        if not content.strip():
-            return (
-                "The model returned an empty answer. "
-                "Please try asking again or check that the uploaded paper contains relevant text."
-            )
-
-        return content.strip()
-
-    except Exception as e:
-        print("[ASK_LLM] OPENAI ERROR:", e)
-        return f"Backend error while contacting the model: {e}"
+    return content.strip()
