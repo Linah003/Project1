@@ -14,6 +14,23 @@ Minimal README for the PDF → RAG → QA part of the project.
 
 ---
 
+## Requirements
+
+Main Python packages used in this part:
+
+- fastapi
+- uvicorn[standard]
+- pdfplumber
+- pymupdf
+- opencv-python-headless
+- numpy
+- sentence-transformers
+- faiss-cpu
+- openai
+- python-multipart
+
+---
+
 ## High-level Flow
 
 1. Client uploads a PDF to POST /upload.
